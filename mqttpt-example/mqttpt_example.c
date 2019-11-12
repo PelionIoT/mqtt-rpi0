@@ -42,7 +42,7 @@
 #include <semaphore.h>
 #include <unistd.h>
 
-#include <wiringPi.h>
+//#include <wiringPi.h>
 #include <string.h>
 
 #define TOWER "LEAP_1_"
@@ -1259,6 +1259,7 @@ int mqttpt_receive_write_handler(const connection_id_t *connection,
                                  const uint8_t *value, const uint32_t value_size,
                                  void* userdata)
 {
+#if JK	
     unsigned char set_point_value[10];
     strncpy(set_point_value,value,value_size);
     set_point_value[value_size] = '\0';
@@ -1290,7 +1291,7 @@ int mqttpt_receive_write_handler(const connection_id_t *connection,
 		else
 			digitalWrite (RIGHT_SIDE_LIGHT, HIGH) ;	// On
 	}
-   
+#endif
     return 0;
 }
 
@@ -1962,12 +1963,12 @@ void mqtt_connect_callback(struct mosquitto *mosq, void *userdata, int result)
         mqttpt_handle_message(mosq, topic_4, payload_4, strlen(payload_4));
         sleep(1);
 
-//#if JK      
+#if JK      
         pinMode (LEFT_SIDE_LIGHT, OUTPUT) ;
         pinMode (RIGHT_SIDE_LIGHT, OUTPUT) ;
         pinMode (WIFI, OUTPUT) ;
         pinMode (CAMERA, OUTPUT) ;
-//#endif        
+#endif        
         
     }else{
         tr_err("Connect failed");
@@ -2011,10 +2012,10 @@ int main(int argc, char *argv[])
 {
     bool clean_session = true;
     mosq = NULL;
-//#if JK
+#if JK
     if (wiringPiSetup () == -1)
 		exit (1) ;
-//#endif    
+#endif    
     setup_signals();
 
     DocoptArgs args = docopt(argc, argv, /* help */ 1, /* version */ "0.1");
