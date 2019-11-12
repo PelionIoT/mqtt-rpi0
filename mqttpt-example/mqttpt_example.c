@@ -1573,10 +1573,12 @@ void mqttpt_translate_node_value_message(struct mosquitto *mosq,
             
            if(strstr(device_name,"wifi"))
            {
+#if JK
             if(digitalRead(WIFI))
                 strcpy(value,"on");
             else
                 strcpy(value,"off");
+#endif
            }
            else
            {
@@ -1616,10 +1618,12 @@ void mqttpt_translate_node_value_message(struct mosquitto *mosq,
 			}
            if(strstr(device_name,"camera"))
            {
+#if JK
             if(digitalRead(CAMERA))
                 strcpy(value,"on");
             else
                 strcpy(value,"off");
+#endif
            }
            else
            {
