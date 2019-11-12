@@ -1503,7 +1503,9 @@ void mqttpt_translate_node_value_message(struct mosquitto *mosq,
 		int object_id = LIGHT_CONTROL;
 		int object_instance = 0;
 		int resource_id = 0;
-		char value[10]; 
+		char value[10];
+
+  		strcpy(value,"off");	
 		device_name = json_string_value(json_array_get(payload_field, 0));
 		device_status = json_string_value(json_array_get(payload_field, 1));
 		if (!pt_device_exists(g_connection_id, device_name)) {
@@ -1519,18 +1521,21 @@ void mqttpt_translate_node_value_message(struct mosquitto *mosq,
 			   tr_info("Creating sensor.");
 			   if(strstr(device_name,"left_side_light"))
 			   {
+#if JK
 				if(digitalRead(LEFT_SIDE_LIGHT))
 					strcpy(value,"on");
 				else
 					strcpy(value,"off");
+#endif
 			   }
 			   else if(strstr(device_name,"right_side_light"))
 			   {
-
+#if JK
 				if(digitalRead(RIGHT_SIDE_LIGHT))
 					strcpy(value,"on");
 				else
 					strcpy(value,"off");
+#endif
 			   }
 			   else
 			   {
