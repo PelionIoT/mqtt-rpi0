@@ -42,22 +42,10 @@
 #include <semaphore.h>
 #include <unistd.h>
 
-//#include <wiringPi.h>
 #include <string.h>
 
-#define TOWER "LEAP_1_"
 
 /* gio access wiring pi pins*/
-#define	LEFT_SIDE_LIGHT 21	
-#define	RIGHT_SIDE_LIGHT 22
-
-#define	WIFI 23
-#define	CAMERA 23	
-
-#define WIFI_OBJECT_ID 3300
-#define CAMERA_OBJECT_ID 3300
-#define GENERIC_SENSOR 3300
-
 
 connection_id_t g_connection_id = PT_API_CONNECTION_ID_INVALID;
 pt_api_mutex_t *g_devices_mutex = NULL;
@@ -88,6 +76,9 @@ void ipso_create_set_point_mqtt(connection_id_t connection_id,
 sem_t mqttpt_translator_started;
 pthread_t mqttpt_thread;
 #define MQTTPT_DEFAULT_LIFETIME 10000
+#define GENERIC_SENSOR 3300
+#define LIGHT_CONTROL 3311
+
 
 
 /*
@@ -118,7 +109,6 @@ protocol_translator_api_start_ctx_t *global_pt_ctx;
 typedef NS_LIST_HEAD(mqttpt_device_t, link) mqttpt_device_list_t;
 bool protocol_translator_shutdown_handler_called = false;
 mqttpt_device_list_t *mqttpt_devices;
-
 void mqttpt_add_device(const char* deveui) {
     if (deveui == NULL) {
         return;
@@ -1259,39 +1249,11 @@ int mqttpt_receive_write_handler(const connection_id_t *connection,
                                  const uint8_t *value, const uint32_t value_size,
                                  void* userdata)
 {
-#if JK	
     unsigned char set_point_value[10];
-    strncpy(set_point_value,value,value_size);
-    set_point_value[value_size] = '\0';
-	if(strstr(device_id,"wifi")) //gpio 3
-    {
-		if(strcmp(set_point_value,"off")==0)
-			digitalWrite (WIFI, LOW) ;	// Off
-		else
-			digitalWrite (WIFI, HIGH) ;	// On
-	}
-	else if(strstr(device_id,"camera")) //gpio 5 
-    {
-		if(strcmp(set_point_value,"off")==0)
-			digitalWrite (CAMERA, LOW) ;	// Off
-		else
-			digitalWrite (CAMERA, HIGH) ;	// On
-	}
-	else if(strstr(device_id,"left_side_light")) //gpio 0
-    {
-		if(strcmp(set_point_value,"off")==0)
-			digitalWrite (LEFT_SIDE_LIGHT, LOW) ;	// Off
-		else
-			digitalWrite (LEFT_SIDE_LIGHT, HIGH) ;	// On
-	}
-	else if(strstr(device_id,"right_side_light")) //gpio 7
-    {
-		if(strcmp((char*)set_point_value,"off")==0)
-			digitalWrite (RIGHT_SIDE_LIGHT, LOW) ;	// Off
-		else
-			digitalWrite (RIGHT_SIDE_LIGHT, HIGH) ;	// On
-	}
-#endif
+    unsigned char final[100];
+    sprintf(final,"mosquitto_pub -t inTopic/'%s' -m '%c'",device_id,value[0]);
+    system(final);
+
     return 0;
 }
 
@@ -1408,60 +1370,50 @@ void mqttpt_translate_node_value_message(struct mosquitto *mosq,
 		char device_name_env[10];// = json_string_value(json_array_get(payload_field, 0));
 		char device_value_env[50];// = json_string_value(json_array_get(payload_field, 1));
 
-        strcpy(final_device_name,TOWER);
-        strcat(final_device_name,json_string_value(json_array_get(payload_field, 0)));
-		strcat(final_device_name,"_temp_humid_co2");
+        //strcpy(final_device_name,"arm_");
+        //strcpy(final_device_name,json_string_value(json_array_get(payload_field, 0)));
+	//	strcat(final_device_name,"_");
 
-        if (!pt_device_exists(g_connection_id, final_device_name)) {
+            
+		
+		for(index=0;index<payload_field_size;index++)
+		{
+
+			//strcat(final_device_name,json_string_value(json_array_get(payload_field, 0)));
+			sscanf(json_string_value(json_array_get(payload_field, index)),"%s %s",final_device_name,device_value_env);
+        		if (!pt_device_exists(g_connection_id, final_device_name)) {
 				pt_status_t status = pt_device_create(g_connection_id, final_device_name, MQTTPT_DEFAULT_LIFETIME, NONE);
 				if (status != PT_STATUS_SUCCESS) {
 				tr_err("Could not create a device %s error code: %d", final_device_name, (int32_t) status);
 				return;
-                }
-        }
-            
-		
-		for(index=1;index<payload_field_size;index++)
-		{
-
-			//strcat(final_device_name,json_string_value(json_array_get(payload_field, 0)));
-			sscanf(json_string_value(json_array_get(payload_field, index)),"%s %s",device_name_env,device_value_env);
+                	}
+        		}
 			//strcat(final_device_name,device_name_env);
-	        device_name = final_device_name;
             device_status = device_value_env;
             value = device_value_env;
 
-	        if(strcmp(device_name_env,"humidity")==0)
+	        if(strcmp(final_device_name,"humidity")==0)
 			{
 				object_id = HUMIDITY_SENSOR;
 			}
-			else if(strcmp(device_name_env,"temp")==0 || strcmp(device_name_env,"temperature")==0)
+			else if(strcmp(final_device_name,"temp")==0 || strcmp(final_device_name,"temperature")==0)
 			{
 				object_id = TEMPERATURE_SENSOR;
 			}
-            else if(strcmp(device_name_env,"co2")==0)
-            {
-                object_id = GENERIC_SENSOR;
-            }
-/*            else if(strcmp(device_name_env,"PM")==0)
-            {
-                object_id = GENERIC_SENSOR;
-		object_instance = 1;
-            }*/
             else 
             {
                 continue;
             }
 		
-		   if (!pt_device_resource_exists(g_connection_id, device_name, object_id, 0, resource_id)) {
+		   if (!pt_device_resource_exists(g_connection_id, final_device_name, object_id, 0, resource_id)) {
 				   //If temperature or humidity, create sensor
 				   tr_info("Creating sensor.");
-				   mqttpt_create_sensor_object(g_connection_id, device_name, object_id, object_instance, value);
+				   mqttpt_create_sensor_object(g_connection_id, final_device_name, object_id, object_instance, value);
 				   //ipso_create_set_point_mqtt(g_connection_id,device_name,object_instance,value,mqttpt_receive_write_handler);
 			   }
 			
 			pt_device_set_resource_value(g_connection_id,
-								 device_name,
+								 final_device_name,
 								 object_id,
 								 object_instance,
 								 resource_id,
@@ -1469,7 +1421,7 @@ void mqttpt_translate_node_value_message(struct mosquitto *mosq,
 								 strlen(value),
 								 free);
                 object_id = GENERIC_SENSOR; 
-		object_instance = 0;
+            object_instance = 0;
 
 	    }/*for */		
         
@@ -1497,8 +1449,8 @@ void mqttpt_translate_node_value_message(struct mosquitto *mosq,
         
 	    return;
 		
-	}// envSensor
-    else if(strcmp(req_type,"register")==0 && strcmp(device_type,"streetLight")==0)
+	}//env sensor
+    else if(strcmp(req_type,"register")==0 && strcmp(device_type,"light")==0)
     {
 		int object_id = LIGHT_CONTROL;
 		int object_instance = 0;
@@ -1519,32 +1471,10 @@ void mqttpt_translate_node_value_message(struct mosquitto *mosq,
 		   if (!pt_device_resource_exists(g_connection_id, device_name, object_id, 0, resource_id)) {
 			   //If temperature or humidity, create sensor
 			   tr_info("Creating sensor.");
-			   if(strstr(device_name,"left_side_light"))
-			   {
-#if JK
-				if(digitalRead(LEFT_SIDE_LIGHT))
-					strcpy(value,"on");
-				else
-					strcpy(value,"off");
-#endif
-			   }
-			   else if(strstr(device_name,"right_side_light"))
-			   {
-#if JK
-				if(digitalRead(RIGHT_SIDE_LIGHT))
-					strcpy(value,"on");
-				else
-					strcpy(value,"off");
-#endif
-			   }
-			   else
-			   {
-				strcpy(value,device_status);
-			   }
-			   mqttpt_create_sensor_object(g_connection_id, device_name, object_id, object_instance, value);
+			   mqttpt_create_sensor_object(g_connection_id, device_name, object_id, object_instance, "0");
 			   ipso_create_set_point_mqtt(g_connection_id,device_name,object_instance,value,mqttpt_receive_write_handler);
 		   }
-
+        }
 		   pt_device_set_resource_value(g_connection_id,
 							 device_name,
 							 object_id,
@@ -1554,100 +1484,9 @@ void mqttpt_translate_node_value_message(struct mosquitto *mosq,
 							 strlen(value),
 							 free);
 
-		}
-    }
-    else if(strcmp(req_type,"register")==0 && strcmp(device_type,"wifi")==0)
-    {
-		int object_id = WIFI_OBJECT_ID;
-		int object_instance = 0;
-		int resource_id = 0;
-		char value[10];
-		device_name = json_string_value(json_array_get(payload_field, 0));
-		device_status = json_string_value(json_array_get(payload_field, 1));
-		if (!pt_device_exists(g_connection_id, device_name)) {
-			pt_status_t status = pt_device_create(g_connection_id, device_name, MQTTPT_DEFAULT_LIFETIME, NONE);
-			if (status != PT_STATUS_SUCCESS) {
-			tr_err("Could not create a device %s error code: %d", device_name, (int32_t) status);
-			return;
-			}
-            
-           if(strstr(device_name,"wifi"))
-           {
-#if JK
-            if(digitalRead(WIFI))
-                strcpy(value,"on");
-            else
-                strcpy(value,"off");
-#endif
-           }
-           else
-           {
-                strcpy(value,device_status);
-           }
-			
-		   if (!pt_device_resource_exists(g_connection_id, device_name, object_id, 0, resource_id)) {
-			   tr_info("Creating sensor.");
-			   mqttpt_create_sensor_object(g_connection_id, device_name, object_id, object_instance, value);
-			   ipso_create_set_point_mqtt(g_connection_id,device_name,object_instance,value,mqttpt_receive_write_handler);
-		   }
-
-		   pt_device_set_resource_value(g_connection_id,
-							 device_name,
-							 object_id,
-							 object_instance,
-							 resource_id,
-							 (uint8_t *) strdup(value),
-							 strlen(value),
-							 free);
-
-		}
-    }
-    else if(strcmp(req_type,"register")==0 && strcmp(device_type,"camera")==0)
-    {
-		int object_id = CAMERA_OBJECT_ID;
-		int object_instance = 0;
-		int resource_id = 0;
-		char value[10];
-		device_name = json_string_value(json_array_get(payload_field, 0));
-		device_status = json_string_value(json_array_get(payload_field, 1));
-		if (!pt_device_exists(g_connection_id, device_name)) {
-			pt_status_t status = pt_device_create(g_connection_id, device_name, MQTTPT_DEFAULT_LIFETIME, NONE);
-			if (status != PT_STATUS_SUCCESS) {
-			tr_err("Could not create a device %s error code: %d", device_name, (int32_t) status);
-			return;
-			}
-           if(strstr(device_name,"camera"))
-           {
-#if JK
-            if(digitalRead(CAMERA))
-                strcpy(value,"on");
-            else
-                strcpy(value,"off");
-#endif
-           }
-           else
-           {
-                strcpy(value,device_status);
-           }
-			
-		   if (!pt_device_resource_exists(g_connection_id, device_name, object_id, 0, resource_id)) {
-			   tr_info("Creating sensor.");
-			   mqttpt_create_sensor_object(g_connection_id, device_name, object_id, object_instance, value);
-			   ipso_create_set_point_mqtt(g_connection_id,device_name,object_instance,value,mqttpt_receive_write_handler);
-		   }
-
-		   pt_device_set_resource_value(g_connection_id,
-							 device_name,
-							 object_id,
-							 object_instance,
-							 resource_id,
-							 (uint8_t *) strdup(value),
-							 strlen(value),
-							 free);
-		}
-    }
+    }//light
     
-	if (payload_field_size > 0) {
+    if (payload_field_size > 0) {
 		char* deveui_ctx = strdup(device_name);
 		if (mqttpt_device_exists(device_name)) {
 			tr_info("Updating the changed object structure %s\n", deveui_ctx);
@@ -1664,8 +1503,7 @@ void mqttpt_translate_node_value_message(struct mosquitto *mosq,
 							   mqttpt_device_register_failure_handler,
 							   deveui_ctx);
 		}
-	}	
-    
+	}
 
 
     json_decref(json);
@@ -1897,12 +1735,12 @@ void mqttpt_handle_message(struct mosquitto *mosq, char *topic, char *payload, i
         return;
     }
 
-    topic_offset[0] = strtok_r(topic, "/", &saveptr);; // points to "QognoGw"
+    topic_offset[0] = strtok_r(topic, "/", &saveptr);; // points to "armgw"
     topic_offset[1] = strtok_r(NULL, "/", &saveptr); // points to "company"
     topic_offset[2] = strtok_r(NULL, "/", &saveptr); // points to "device type"
     topic_offset[3] = strtok_r(NULL, "/", &saveptr); // points to "publish type"
 
-    tr_info("qogno mqttpt handling message");
+    tr_info("arm mqttpt handling message");
     tr_info("topic 0: %s", topic_offset[0]);
     tr_info("topic 1: %s", topic_offset[1]);
     tr_info("topic 2: %s", topic_offset[2]);
@@ -1915,7 +1753,7 @@ void mqttpt_handle_message(struct mosquitto *mosq, char *topic, char *payload, i
 	sleep(2);
     }
 
-    if (strcmp(topic_offset[0], "QognoGw") == 0) {
+    if (strcmp(topic_offset[0], "armgw") == 0) {
             mqttpt_translate_node_value_message(mosq, topic_offset[1], topic_offset[2],topic_offset[3], payload, payload_len);
         }
     else {
@@ -1939,46 +1777,10 @@ void mqtt_message_callback(struct mosquitto *mosq, void *userdata, const struct 
 
 void mqtt_connect_callback(struct mosquitto *mosq, void *userdata, int result)
 {
-	char payload_1[100];
-	char payload_2[100];
-	char payload_3[100];
-	char payload_4[100];
-	char topic_1[] = "QognoGw/Qogno/streetLight/register";
-	
-	char topic_2[] = "QognoGw/Qogno/streetLight/register";
-	
-	char topic_3[] = "QognoGw/Qogno/wifi/register";
-	
-	char topic_4[] = "QognoGw/Qogno/camera/register";
-		
-        sprintf(payload_1,"{\"payload_field\":[\"%sleft_side_light\",\"off\"]}",TOWER);	
-        sprintf(payload_2,"{\"payload_field\":[\"%sright_side_light\",\"off\"]}",TOWER);	
-        sprintf(payload_3,"{\"payload_field\":[\"%swifi\",\"off\"]}",TOWER);	
-        sprintf(payload_4,"{\"payload_field\":[\"%scamera\",\"off\"]}",TOWER);	
 	
     if(!result){
-        mosquitto_subscribe(mosq, NULL, "QognoGw/Qogno/#", 2);
-        sleep(1);
-      
-        mqttpt_handle_message(mosq, topic_1, payload_1, strlen(payload_1));
-        sleep(1);
-
-        mqttpt_handle_message(mosq, topic_2, payload_2, strlen(payload_2));
-        sleep(1);
-
-        mqttpt_handle_message(mosq, topic_3, payload_3, strlen(payload_3));
-        sleep(1);
-
-        mqttpt_handle_message(mosq, topic_4, payload_4, strlen(payload_4));
-        sleep(1);
-
-#if JK      
-        pinMode (LEFT_SIDE_LIGHT, OUTPUT) ;
-        pinMode (RIGHT_SIDE_LIGHT, OUTPUT) ;
-        pinMode (WIFI, OUTPUT) ;
-        pinMode (CAMERA, OUTPUT) ;
-#endif        
-        
+        mosquitto_subscribe(mosq, NULL, "armgw/arm/#", 2);
+        sleep(1);   
     }else{
         tr_err("Connect failed");
     }
@@ -2021,10 +1823,7 @@ int main(int argc, char *argv[])
 {
     bool clean_session = true;
     mosq = NULL;
-#if JK
-    if (wiringPiSetup () == -1)
-		exit (1) ;
-#endif    
+
     setup_signals();
 
     DocoptArgs args = docopt(argc, argv, /* help */ 1, /* version */ "0.1");
